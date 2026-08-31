@@ -43,3 +43,20 @@ def test_cli_hook_install(tmp_path: Path):
     hook_res = runner.invoke(app, ["hook", "install", "--git-dir", str(git_dir)])
     assert hook_res.exit_code == 0
     assert (git_dir / "hooks" / "pre-push").exists()
+
+
+def test_cli_update_command(tmp_path: Path):
+    # 1. Test update --project on empty dir
+    res_proj = runner.invoke(app, ["update", "--project", "--target", str(tmp_path)])
+    assert res_proj.exit_code == 0
+    assert (tmp_path / ".github" / "workflows" / "archguard-governance.yml").exists()
+    assert (tmp_path / "archguard.yaml").exists()
+    assert "Project Asset Synchronization Matrix" in res_proj.stdout
+
+    # 2. Test update default execution
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir(parents=True, exist_ok=True)
+    res_default = runner.invoke(app, ["update", "--target", str(tmp_path)])
+    assert res_default.exit_code == 0
+    assert "ArchGuard Maintenance & Update" in res_default.stdout
+

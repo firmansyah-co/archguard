@@ -12,7 +12,16 @@ from rich.table import Table
 from archguard import __version__
 from archguard.core.config import ArchGuardConfig
 from archguard.core.models import Severity, SuiteResult
-from archguard.templates.scaffold import scaffold_project
+from archguard.core.updater import (
+    ARCHGUARD_REPO_URL,
+    perform_project_update,
+    perform_self_update,
+)
+from archguard.templates.scaffold import (
+    PRE_PUSH_HOOK_SCRIPT,
+    WORKFLOW_TEMPLATE,
+    scaffold_project,
+)
 from archguard.validators import (
     ALL_VALIDATORS,
     ComponentValidator,
@@ -123,7 +132,7 @@ def init_cmd(
 @app.command("check")
 def check_cmd(
     path: Path = typer.Option(Path("."), "--path", "-p", help="Root directory of the project to check"),
-    all_checks: bool = typer.Option(True, "--all", help="Run all standards checks"),
+    all_checks: bool = typer.Option(False, "--all", help="Run all standards checks"),
     tokens: bool = typer.Option(False, "--tokens", help="Run W3C DTCG token checks"),
     layers: bool = typer.Option(False, "--layers", help="Run ISO 42010 Layer architecture checks"),
     specs: bool = typer.Option(False, "--specs", help="Run ISO 29148 Living specification checks"),
@@ -168,26 +177,8 @@ def hook_install(
         raise typer.Exit(code=1)
 
     hooks_dir.mkdir(parents=True, exist_ok=True)
-
-    pre_push_script = """#!/usr/bin/env bash
-# ArchGuard Automated Pre-Push Governance Gate
-echo "===> [ArchGuard] Running deterministic architecture governance checks..."
-if command -v archguard >/dev/null 2>&1; then
-    archguard check --all
-    exit $?
-elif command -v uv >/dev/null 2>&1; then
-    uv run archguard check --all
-    exit $?
-elif command -v python3 >/dev/null 2>&1; then
-    python3 -m archguard.cli.main check --all
-    exit $?
-else
-    echo "Warning: archguard executable not found in PATH. Skipping hook."
-    exit 0
-fi
-"""
     pre_push_file = hooks_dir / "pre-push"
-    pre_push_file.write_text(pre_push_script, encoding="utf-8")
+    pre_push_file.write_text(PRE_PUSH_HOOK_SCRIPT, encoding="utf-8")
     pre_push_file.chmod(0o755)
 
     console.print(f"[bold green]✓ ArchGuard pre-push hook installed into {pre_push_file}[/bold green]")
@@ -200,39 +191,124 @@ def ci_gen_cmd(
     """Generate ready-to-use GitHub Actions workflow files for ArchGuard governance."""
     output_dir.mkdir(parents=True, exist_ok=True)
     workflow_path = output_dir / "archguard-governance.yml"
-
-    content = """name: ArchGuard Architecture Governance Gate
-
-on:
-  push:
-    branches: [ main, dev ]
-  pull_request:
-    branches: [ main, dev ]
-
-jobs:
-  archguard-audit:
-    name: ISO & W3C Standards Validation
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install ArchGuard
-        run: |
-          pip install uv
-          uv pip install --system . || uv pip install --system archguard
-
-      - name: Run Deterministic ArchGuard Gate
-        run: |
-          archguard check --all
-"""
-    workflow_path.write_text(content, encoding="utf-8")
+    workflow_path.write_text(WORKFLOW_TEMPLATE, encoding="utf-8")
     console.print(f"[bold green]✓ Generated GitHub Actions workflow: {workflow_path}[/bold green]")
+
+
+@app.command("update")
+def update_cmd(
+    self_upgrade: bool = typer.Option(False, "--self", "-s", help="Self-upgrade ArchGuard CLI & sync Hermes skill"),
+    project_update: bool = typer.Option(False, "--project", "-p", help="Update project CI workflows, Git hooks & config"),
+    target_dir: Path = typer.Option(Path("."), "--target", "-t", help="Target project directory for asset update"),
+    repo_path: Optional[Path] = typer.Option(None, "--repo", help="Custom local ArchGuard repository path for self-upgrade"),
+) -> None:
+    """
+    Self-upgrade ArchGuard engine, synchronize Hermes skills, and refresh project CI/hook assets.
+    """
+    # If neither flag is passed, execute both or determine context
+    run_self = self_upgrade
+    run_proj = project_update
+
+    if not run_self and not run_proj:
+        # Default behavior: run self-update, and also project update if inside a git/archguard project
+        run_self = True
+        is_project = (target_dir / "archguard.yaml").exists() or (target_dir / ".git").exists()
+        if is_project:
+            run_proj = True
+
+    console.print(
+        Panel(
+            f"[bold cyan]ArchGuard Architecture Governance Engine Updater[/bold cyan]\n"
+            f"[dim]Version: {__version__} | Upstream: {ARCHGUARD_REPO_URL}[/dim]",
+            title="ArchGuard Maintenance & Update",
+            border_style="cyan",
+        )
+    )
+
+    success = True
+
+    # 1. Self Upgrade
+    if run_self:
+        console.print("\n[bold blue]▶ [1/2] Upgrading ArchGuard Core Engine & Hermes Skill...[/bold blue]")
+        res_self = perform_self_update(repo_path=repo_path)
+        
+        self_table = Table(title="ArchGuard Self-Upgrade Summary", header_style="bold cyan")
+        self_table.add_column("Component", style="bold")
+        self_table.add_column("Status", justify="center")
+        self_table.add_column("Details", style="dim")
+
+        if res_self["method"] == "local_git":
+            git_status = "[bold green]PULLED[/bold green]" if res_self["git_pulled"] else "[yellow]UNCHANGED/FAILED[/yellow]"
+            self_table.add_row("Git Repository", git_status, res_self.get("commit_info") or res_self["repo_path"])
+        else:
+            self_table.add_row("Git Remote", "[cyan]REMOTE[/cyan]", ARCHGUARD_REPO_URL)
+
+        pip_status = "[bold green]INSTALLED[/bold green]" if res_self["pip_upgraded"] else "[bold red]FAILED[/bold red]"
+        self_table.add_row("Python Package", pip_status, f"pip install ({res_self['method']})")
+
+        skill_status = "[bold green]SYNCED[/bold green]" if res_self["skill_synced"] else "[yellow]SKIPPED/NOT FOUND[/yellow]"
+        self_table.add_row("Hermes Skill Symlink", skill_status, res_self["skill_path"])
+
+        console.print(self_table)
+
+        if not res_self["success"]:
+            success = False
+            for err in res_self.get("errors", []):
+                console.print(f"  [bold red]✗ {err}[/bold red]")
+
+    # 2. Project Update
+    if run_proj:
+        step_num = "2/2" if run_self else "1/1"
+        console.print(f"\n[bold blue]▶ [{step_num}] Refreshing Project CI/CD & Governance Assets in {target_dir.resolve()}...[/bold blue]")
+        res_proj = perform_project_update(target_dir=target_dir)
+
+        proj_table = Table(title="Project Asset Synchronization Matrix", header_style="bold cyan")
+        proj_table.add_column("Asset", style="bold")
+        proj_table.add_column("Status", justify="center")
+        proj_table.add_column("Target Path", style="dim")
+
+        wf_status = "[bold green]UPDATED[/bold green]" if res_proj["workflow_updated"] else "[bold red]FAILED[/bold red]"
+        proj_table.add_row("GitHub Workflow", wf_status, res_proj["workflow_path"])
+
+        if res_proj["hook_skipped"]:
+            hook_status = "[yellow]SKIPPED (no .git)[/yellow]"
+        elif res_proj["hook_updated"]:
+            hook_status = "[bold green]INSTALLED[/bold green]"
+        else:
+            hook_status = "[bold red]FAILED[/bold red]"
+        proj_table.add_row("Git Pre-Push Hook", hook_status, res_proj["hook_path"] or "N/A")
+
+        cfg_status = f"[bold green]{res_proj['config_status'].upper()}[/bold green]" if res_proj["config_status"] else "[bold red]FAILED[/bold red]"
+        proj_table.add_row("ArchGuard Config", cfg_status, res_proj["config_path"])
+
+        console.print(proj_table)
+
+        if not res_proj["success"]:
+            success = False
+            for err in res_proj.get("errors", []):
+                console.print(f"  [bold red]✗ {err}[/bold red]")
+
+    # Final Outcome Banner
+    if success:
+        console.print(
+            Panel(
+                "[bold green]✓ ArchGuard update completed successfully![/bold green]\n"
+                "Engine, skills, and project assets are fully aligned with latest standards.",
+                title="Update Complete",
+                border_style="green",
+            )
+        )
+    else:
+        console.print(
+            Panel(
+                "[bold red]✗ ArchGuard update completed with errors.[/bold red]\n"
+                "Review the diagnostic matrix above for remediation steps.",
+                title="Update Warnings/Errors",
+                border_style="red",
+            )
+        )
+        raise typer.Exit(code=1)
+
 
 
 if __name__ == "__main__":

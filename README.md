@@ -81,6 +81,20 @@ archguard hook install
 archguard ci-gen
 ```
 
+### Self-Update & Project Assets Synchronization
+
+```bash
+# 1. Full self-upgrade & project asset synchronization
+archguard update
+
+# 2. Upgrade ArchGuard engine & sync Hermes skill only
+archguard update --self
+
+# 3. Refresh project CI workflow, pre-push hook & config only
+archguard update --project
+```
+
+
 ---
 
 ## 🧩 Validation Engines

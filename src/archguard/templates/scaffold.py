@@ -202,6 +202,58 @@ Chosen Option: Hexagonal / Clean Architecture.
 """
 
 
+PRE_PUSH_HOOK_SCRIPT = """#!/usr/bin/env bash
+# ArchGuard Automated Pre-Push Governance Gate
+echo "===> [ArchGuard] Running deterministic architecture governance checks..."
+if command -v archguard >/dev/null 2>&1; then
+    archguard check --all
+    exit $?
+elif command -v uv >/dev/null 2>&1; then
+    uv run archguard check --all
+    exit $?
+elif command -v python3 >/dev/null 2>&1; then
+    python3 -m archguard.cli.main check --all
+    exit $?
+else
+    echo "Warning: archguard executable not found in PATH. Skipping hook."
+    exit 0
+fi
+"""
+
+
+WORKFLOW_TEMPLATE = """name: ArchGuard Architecture Governance Gate
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main, dev ]
+
+jobs:
+  archguard-audit:
+    name: ISO & W3C Standards Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ArchGuard
+        run: |
+          pip install uv
+          uv pip install --system . || uv pip install --system archguard
+
+      - name: Run Deterministic ArchGuard Gate
+        run: |
+          archguard check --all
+"""
+
+
+
 def scaffold_project(target_dir: Path, project_type: str = "fullstack") -> None:
     """Scaffold standard ISO/W3C compliant project topology."""
     target_dir.mkdir(parents=True, exist_ok=True)

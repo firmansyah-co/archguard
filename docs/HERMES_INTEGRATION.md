@@ -16,9 +16,20 @@ ArchGuard acts as a deterministic static verification gate that catches these re
 
 ---
 
-## 2. Installing the Hermes Skill
+## 2. Installing and Updating the Hermes Skill
+
+### Automatic Symlink Synchronization via CLI
+
+Run `archguard update` or `archguard update --self` from any terminal:
+```bash
+archguard update --self
+```
+This automatically ensures `~/.hermes/skills/engineering/archguard` symlinks directly to the ArchGuard repository's skill folder.
+
+### Manual Installation (Fallback)
 
 Copy or link the skill into your active Hermes profile:
+
 
 ```bash
 # For default profile

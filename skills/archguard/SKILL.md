@@ -47,6 +47,11 @@ archguard hook install
 
 # 5. Generate GitHub Actions CI workflow
 archguard ci-gen
+
+# 6. Self-upgrade and synchronize project assets / Hermes skills
+archguard update
+archguard update --self
+archguard update --project
 ```
 
 ---
