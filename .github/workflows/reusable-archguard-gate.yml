@@ -1,0 +1,35 @@
+name: Reusable ArchGuard Governance Gate
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        default: "3.11"
+      check-args:
+        required: false
+        type: string
+        default: "--all"
+
+jobs:
+  archguard-gate:
+    name: ISO/W3C Architecture Governance Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install ArchGuard
+        run: |
+          pip install uv
+          uv pip install --system archguard
+
+      - name: Run ArchGuard Audit
+        run: |
+          archguard check ${{ inputs.check-args }}

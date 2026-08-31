@@ -1,0 +1,39 @@
+# ArchGuard Configuration
+version: "1.0"
+project_name: "archguard"
+project_type: "library"
+
+tokens:
+  enabled: false
+
+layers:
+  enabled: false
+
+components:
+  enabled: false
+
+specs:
+  enabled: true
+  specs_dir: "specs"
+  require_contracts: true
+  require_traceability: true
+  require_tasks_sync: true
+
+topology:
+  enabled: true
+  forbidden_root_extensions:
+    - ".sh"
+    - ".js"
+    - ".ts"
+    - ".tmp"
+    - ".bak"
+  allowed_root_files:
+    - "pyproject.toml"
+    - "README.md"
+    - "LICENSE"
+    - "CONTRIBUTING.md"
+    - "CODE_OF_CONDUCT.md"
+    - ".gitignore"
+    - "archguard.yaml"
+  require_adr_dir: true
+  adr_dir: "docs/adr"
