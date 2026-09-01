@@ -97,6 +97,27 @@ topology:
     - "vite.config.ts"
   require_adr_dir: true
   adr_dir: "docs/adr"
+
+integrity:
+  enabled: true
+  production_paths:
+    - "frontend/src"
+    - "backend/src"
+    - "src"
+  test_paths:
+    - "tests"
+    - "test"
+    - "__tests__"
+    - "frontend/src/tests"
+    - "backend/tests"
+    - "src/tests"
+    - "mocks"
+    - "__mocks__"
+    - "fixtures"
+  ban_unanchored_synthetic_literals: true
+  ban_heuristic_state_inference: true
+  ban_synthetic_fallbacks: true
+  ban_mock_artifacts_in_production: true
 """
 
 

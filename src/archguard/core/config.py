@@ -95,6 +95,89 @@ class TopologyConfig(BaseModel):
     adr_dir: str = "docs/adr"
 
 
+class DataIntegrityConfig(BaseModel):
+    enabled: bool = True
+    production_paths: List[str] = Field(
+        default_factory=lambda: [
+            "frontend/src",
+            "backend/src",
+            "src",
+        ]
+    )
+    test_paths: List[str] = Field(
+        default_factory=lambda: [
+            "tests",
+            "test",
+            "__tests__",
+            "frontend/src/tests",
+            "backend/tests",
+            "src/tests",
+            "mocks",
+            "__mocks__",
+            "fixtures",
+        ]
+    )
+    ban_unanchored_synthetic_literals: bool = True
+    ban_heuristic_state_inference: bool = True
+    ban_synthetic_fallbacks: bool = True
+    ban_mock_artifacts_in_production: bool = True
+    domain_keys: List[str] = Field(
+        default_factory=lambda: [
+            "value",
+            "status",
+            "telemetry",
+            "metrics",
+            "oee",
+            "packets",
+            "latency",
+            "user",
+            "token",
+            "voltage",
+            "current",
+            "temperature",
+            "pressure",
+            "speed",
+            "frequency",
+            "power",
+        ]
+    )
+    operational_states: List[str] = Field(
+        default_factory=lambda: [
+            "EXECUTE",
+            "ONLINE",
+            "FAULT",
+            "IDLE",
+            "SUSPENDED",
+            "STOPPED",
+            "STARTING",
+            "COMPLETING",
+            "COMPLETE",
+            "HOLDING",
+            "ABORTED",
+            "RUNNING",
+            "ERROR",
+            "WARNING",
+            "EMERGENCY",
+        ]
+    )
+    mock_keywords: List[str] = Field(
+        default_factory=lambda: [
+            "mock",
+            "dummy",
+            "fake",
+            "stub",
+            "sampleData",
+            "sample_data",
+            "mockData",
+            "mock_data",
+            "fakeData",
+            "fake_data",
+            "dummyData",
+            "dummy_data",
+        ]
+    )
+
+
 class ArchGuardConfig(BaseModel):
     version: str = "1.0"
     project_name: Optional[str] = None
@@ -104,6 +187,7 @@ class ArchGuardConfig(BaseModel):
     components: ComponentConfig = Field(default_factory=ComponentConfig)
     specs: SpecConfig = Field(default_factory=SpecConfig)
     topology: TopologyConfig = Field(default_factory=TopologyConfig)
+    integrity: DataIntegrityConfig = Field(default_factory=DataIntegrityConfig)
 
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "ArchGuardConfig":

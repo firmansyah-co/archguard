@@ -1,0 +1,29 @@
+name: ArchGuard Architecture Governance Gate
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main, dev ]
+
+jobs:
+  archguard-audit:
+    name: ISO & W3C Standards Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ArchGuard
+        run: |
+          pip install uv
+          uv pip install --system . || uv pip install --system archguard
+
+      - name: Run Deterministic ArchGuard Gate
+        run: |
+          archguard check --all
