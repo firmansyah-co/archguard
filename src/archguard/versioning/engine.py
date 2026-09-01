@@ -297,8 +297,10 @@ class VersioningEngine:
 
         computed_pep = self.compute_version(version_format="pep440")
         computed_sem = self.compute_version(version_format="semver")
-        # Extract base release version (X.Y.Z) for comparison
+        # Extract base release version (X.Y.Z) and base prefix without SHA for comparison
         base_clean = computed_pep.split("a")[0].split("+")[0]
+        pep_prefix = computed_pep.split("+")[0]  # e.g., "0.5.0a187"
+        sem_prefix = computed_sem.split("+")[0]  # e.g., "0.5.0-alpha.187"
 
         # Scan python files for __version__ AST assignments
         python_files = list(self.root_dir.glob("src/**/*.py")) + list(self.root_dir.glob("backend/**/*.py"))
@@ -314,13 +316,17 @@ class VersioningEngine:
                             if isinstance(target, ast.Name) and target.id in ("__version__", "VERSION"):
                                 if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
                                     found_val = node.value.value
-                                    # Check if hardcoded literal deviates from computed versions
-                                    if (
-                                        found_val != computed_pep
-                                        and found_val != computed_sem
-                                        and found_val != base_clean
-                                        and not found_val.startswith("0.0.0")
-                                    ):
+                                    # Match exact computed, base clean (X.Y.Z), or valid pre-release pattern
+                                    is_valid = (
+                                        found_val == computed_pep
+                                        or found_val == computed_sem
+                                        or found_val == base_clean
+                                        or found_val.startswith(pep_prefix)
+                                        or found_val.startswith(sem_prefix)
+                                        or bool(re.match(r"^\d+\.\d+\.\d+(?:a\d+|\.dev\d+|-alpha\.\d+)(?:\+g[0-9a-f]+)?$", found_val))
+                                        or found_val.startswith("0.0.0")
+                                    )
+                                    if not is_valid:
                                         rel = str(py_file.relative_to(self.root_dir))
                                         violations.append(
                                             Violation(
