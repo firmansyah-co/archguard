@@ -26,12 +26,15 @@ from archguard.validators import (
     ALL_VALIDATORS,
     ComponentValidator,
     DataIntegrityValidator,
+    GitTopologyValidator,
     LayerValidator,
     SpecValidator,
     TokenValidator,
     TopologyValidator,
+    VersioningValidator,
     run_all_checks,
 )
+from archguard.versioning.engine import VersioningEngine, run_git_command
 
 app = typer.Typer(
     name="archguard",
@@ -40,6 +43,12 @@ app = typer.Typer(
 )
 hook_app = typer.Typer(help="Manage Git hook integrations.")
 app.add_typer(hook_app, name="hook")
+
+version_app = typer.Typer(help="Deterministic Git-derived version calculation and file synchronization.")
+app.add_typer(version_app, name="version")
+
+topology_app = typer.Typer(help="Dual-trunk dual-gate branch topology management.")
+app.add_typer(topology_app, name="topology")
 
 console = Console()
 
@@ -104,12 +113,103 @@ def render_suite_result(result: SuiteResult) -> None:
         )
 
 
-@app.command("version")
-def version_cmd() -> None:
-    """Display ArchGuard version and metadata."""
-    console.print(f"[bold cyan]ArchGuard Architecture Governance Engine[/bold cyan] v{__version__}")
-    console.print("Author: Firmansyah Consulting & Enterprise Systems")
-    console.print("Standards: ISO/IEC/IEEE 42010, ISO 29148, ISO 25010, W3C DTCG, RFC 7807")
+@version_app.callback(invoke_without_command=True)
+def version_main(ctx: typer.Context) -> None:
+    """Display ArchGuard version or manage deterministic versioning subcommands."""
+    if ctx.invoked_subcommand is None:
+        console.print(f"[bold cyan]ArchGuard Architecture Governance Engine[/bold cyan] v{__version__}")
+        console.print("Author: Firmansyah Consulting & Enterprise Systems")
+        console.print("Standards: ISO/IEC/IEEE 42010, ISO 29148, ISO 25010, SemVer 2.0.0, PEP 440, IEEE 828")
+
+
+@version_app.command("compute")
+def version_compute_cmd(
+    target_dir: Path = typer.Option(Path("."), "--path", "-p", help="Target project root directory"),
+    version_format: str = typer.Option("pep440", "--format", "-f", help="Version format: pep440 | semver"),
+    branch: Optional[str] = typer.Option(None, "--branch", "-b", help="Branch name (defaults to active branch)"),
+) -> None:
+    """Calculate current deterministic version from Git history and print to stdout."""
+    engine = VersioningEngine(root_dir=target_dir)
+    ver = engine.compute_version(branch=branch, version_format=version_format)
+    # Output raw computed version string for CLI piping / scripting
+    console.print(ver)
+
+
+@version_app.command("sync")
+def version_sync_cmd(
+    target_dir: Path = typer.Option(Path("."), "--path", "-p", help="Target project root directory"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show version changes without modifying files"),
+) -> None:
+    """Synchronize computed version across pyproject.toml, package.json, and __init__.py files."""
+    engine = VersioningEngine(root_dir=target_dir)
+    computed_ver = engine.compute_version()
+    changes = engine.sync_version_files(dry_run=dry_run)
+
+    if not changes:
+        console.print(f"[bold green]✓ All version files are in sync with Git-derived version '{computed_ver}'.[/bold green]")
+        return
+
+    table = Table(title=f"Version Synchronization ({'[yellow]DRY RUN[/yellow]' if dry_run else '[green]APPLIED[/green]'})", header_style="bold cyan")
+    table.add_column("File Path", style="bold")
+    table.add_column("Previous Version", style="red")
+    table.add_column("New Version", style="green")
+
+    for path_str, (old_v, new_v) in changes.items():
+        table.add_row(path_str, old_v, new_v)
+
+    console.print(table)
+    if dry_run:
+        console.print("[yellow]Dry-run mode active. No files were modified.[/yellow]")
+    else:
+        console.print(f"[bold green]✓ Synchronized {len(changes)} files to version '{computed_ver}'.[/bold green]")
+
+
+@topology_app.command("init")
+def topology_init_cmd(
+    target_dir: Path = typer.Option(Path("."), "--path", "-p", help="Target project root directory"),
+    topology_type: str = typer.Option("production", "--type", "-t", help="Topology type: library | production"),
+    create_dev: bool = typer.Option(False, "--create-dev", help="Create dev branch if missing"),
+) -> None:
+    """Initialize dual-trunk branch structure and protection configuration."""
+    root = target_dir.resolve()
+    console.print(f"[bold blue]Initializing {topology_type} Git topology in {root}...[/bold blue]")
+    
+    if create_dev or topology_type == "production":
+        # Check if dev branch exists
+        code, out, _ = run_git_command(["branch", "--list", "dev"], root)
+        if code == 0 and not out:
+            # Create dev branch from current HEAD
+            c_dev, _, err = run_git_command(["branch", "dev"], root)
+            if c_dev == 0:
+                console.print("[bold green]✓ Created local integration branch 'dev'.[/bold green]")
+            else:
+                console.print(f"[yellow]Warning creating dev branch: {err}[/yellow]")
+        else:
+            console.print("[dim]Branch 'dev' already exists.[/dim]")
+
+    console.print(f"[bold green]✓ Git topology initialized for '{topology_type}'.[/bold green]")
+
+
+@topology_app.command("validate")
+def topology_validate_cmd(
+    target_dir: Path = typer.Option(Path("."), "--path", "-p", help="Target project root directory"),
+) -> None:
+    """Validate current repository topology and output structured JSON report."""
+    root = target_dir.resolve()
+    cfg = ArchGuardConfig.load(root / "archguard.yaml" if (root / "archguard.yaml").exists() else None)
+    validator = GitTopologyValidator(root_dir=root, config=cfg)
+    res = validator.validate()
+
+    report = {
+        "passed": res.passed,
+        "standard": res.standard.value,
+        "violations": [v.model_dump() for v in res.violations],
+        "metadata": res.metadata,
+    }
+    import json
+    console.print(json.dumps(report, indent=2))
+    if not res.passed:
+        raise typer.Exit(code=1)
 
 
 @app.command("init")
@@ -137,9 +237,10 @@ def check_cmd(
     tokens: bool = typer.Option(False, "--tokens", help="Run W3C DTCG token checks"),
     layers: bool = typer.Option(False, "--layers", help="Run ISO 42010 Layer architecture checks"),
     specs: bool = typer.Option(False, "--specs", help="Run ISO 29148 Living specification checks"),
-    topology: bool = typer.Option(False, "--topology", help="Run ISO 12207 Repository hygiene checks"),
+    topology: bool = typer.Option(False, "--topology", help="Run ISO 12207 / IEEE 828 Repository & Git topology checks"),
     components: bool = typer.Option(False, "--components", help="Run ISO 25010 Component reusability checks"),
     integrity: bool = typer.Option(False, "--integrity", help="Run ISO 25010 Data integrity & zero-mock checks"),
+    versioning: bool = typer.Option(False, "--versioning", help="Run SemVer 2.0.0 / IEEE 828 deterministic versioning checks"),
 ) -> None:
     """Run deterministic static AST & standards validation engine."""
     root = path.resolve()
@@ -154,11 +255,13 @@ def check_cmd(
     if specs:
         selected_validators.append(SpecValidator)
     if topology:
-        selected_validators.append(TopologyValidator)
+        selected_validators.extend([TopologyValidator, GitTopologyValidator])
     if components:
         selected_validators.append(ComponentValidator)
     if integrity:
         selected_validators.append(DataIntegrityValidator)
+    if versioning:
+        selected_validators.append(VersioningValidator)
 
     if not selected_validators or all_checks:
         selected_validators = ALL_VALIDATORS
