@@ -206,23 +206,30 @@ class DataIntegrityValidator(BaseValidator):
 
         # 4. Check for synthetic magic number fallbacks (Rule ISO-25010-INT-003)
         if self.config.integrity.ban_synthetic_fallbacks:
+            telemetry_keys = self.config.integrity.telemetry_metric_keys
+            # Pattern matching word boundary for telemetry metric keys
+            telemetry_pattern = re.compile(
+                r"\b(" + "|".join(re.escape(k) for k in telemetry_keys) + r")\b",
+                re.IGNORECASE,
+            )
+
             for node in ast.walk(tree):
                 if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
                     for val in node.values[1:]:
                         if isinstance(val, ast.Constant) and isinstance(val.value, (int, float)) and val.value != 0:
                             left_repr = (
-                                ast.unparse(node.values[0]).lower()
+                                ast.unparse(node.values[0])
                                 if hasattr(ast, "unparse")
                                 else ""
                             )
-                            if any(k.lower() in left_repr for k in domain_keys):
+                            if telemetry_pattern.search(left_repr):
                                 violations.append(
                                     Violation(
                                         rule_id="ISO-25010-INT-003",
                                         standard=self.standard,
                                         severity=Severity.ERROR,
                                         message=(
-                                            f"Synthetic magic number fallback '{val.value}' assigned to domain expression '{left_repr}'. "
+                                            f"Synthetic magic number fallback '{val.value}' assigned to telemetry expression '{left_repr}'. "
                                             f"Bypassing missing telemetry with fake non-zero constants violates data integrity."
                                         ),
                                         file_path=rel_path_str,
@@ -234,22 +241,23 @@ class DataIntegrityValidator(BaseValidator):
                     if len(node.args) >= 2:
                         key_arg = node.args[0]
                         default_arg = node.args[1]
-                        if isinstance(key_arg, ast.Constant) and str(key_arg.value).lower() in domain_keys:
-                            if isinstance(default_arg, ast.Constant) and isinstance(default_arg.value, (int, float)) and default_arg.value != 0:
-                                violations.append(
-                                    Violation(
-                                        rule_id="ISO-25010-INT-003",
-                                        standard=self.standard,
-                                        severity=Severity.ERROR,
-                                        message=(
-                                            f"Synthetic magic number fallback '{default_arg.value}' used as default for domain key '{key_arg.value}'. "
-                                            f"Hardcoded fake metrics violate ISO 25010 data integrity."
-                                        ),
-                                        file_path=rel_path_str,
-                                        line_number=node.lineno,
-                                        remediation_hint="Default to None or raise explicit telemetry missing exception.",
+                        if isinstance(key_arg, ast.Constant) and isinstance(key_arg.value, str):
+                            if telemetry_pattern.search(str(key_arg.value)):
+                                if isinstance(default_arg, ast.Constant) and isinstance(default_arg.value, (int, float)) and default_arg.value != 0:
+                                    violations.append(
+                                        Violation(
+                                            rule_id="ISO-25010-INT-003",
+                                            standard=self.standard,
+                                            severity=Severity.ERROR,
+                                            message=(
+                                                f"Synthetic magic number fallback '{default_arg.value}' used as default for telemetry key '{key_arg.value}'. "
+                                                f"Hardcoded fake metrics violate ISO 25010 data integrity."
+                                            ),
+                                            file_path=rel_path_str,
+                                            line_number=node.lineno,
+                                            remediation_hint="Default to None or raise explicit telemetry missing exception.",
+                                        )
                                     )
-                                )
 
         return violations
 
@@ -372,6 +380,12 @@ class DataIntegrityValidator(BaseValidator):
 
         # 4. Rule ISO-25010-INT-003: Synthetic Magic Number Fallbacks
         if self.config.integrity.ban_synthetic_fallbacks:
+            telemetry_keys = self.config.integrity.telemetry_metric_keys
+            telemetry_pattern = re.compile(
+                r"\b(" + "|".join(re.escape(k) for k in telemetry_keys) + r")\b",
+                re.IGNORECASE,
+            )
+
             for line_idx, line in enumerate(lines, start=1):
                 clean_no_comment = line.split("//")[0].strip()
                 if not clean_no_comment or clean_no_comment.startswith("*"):
@@ -383,15 +397,14 @@ class DataIntegrityValidator(BaseValidator):
                     try:
                         f_val = float(num_val)
                         if f_val != 0:
-                            var_lower = var_expr.lower()
-                            if any(dk.lower() in var_lower for dk in domain_keys):
+                            if telemetry_pattern.search(var_expr):
                                 violations.append(
                                     Violation(
                                         rule_id="ISO-25010-INT-003",
                                         standard=self.standard,
                                         severity=Severity.ERROR,
                                         message=(
-                                            f"Synthetic magic number fallback '{num_val}' assigned via '??' or '||' to domain expression '{var_expr}'. "
+                                            f"Synthetic magic number fallback '{num_val}' assigned via '??' or '||' to telemetry expression '{var_expr}'. "
                                             f"Bypassing missing telemetry with fake non-zero constants violates data integrity."
                                         ),
                                         file_path=rel_path_str,
@@ -408,51 +421,64 @@ class DataIntegrityValidator(BaseValidator):
     def _scan_js_deep_literals(
         self, content: str, lines: List[str], rel_path_str: str, domain_keys: Set[str]
     ) -> List[Violation]:
-        """Detect multi-level deep JS/TS object/array literals with domain keys in production code."""
+        """Detect multi-level deep JS/TS object/array literals containing multiple numeric mock metrics in production code."""
         violations: List[Violation] = []
-        brace_stack = []
-        object_depth = 0
-        current_obj_keys: List[Tuple[str, int]] = []
+        metric_keys = set(self.config.integrity.telemetry_metric_keys)
+        metric_pattern = re.compile(
+            r"\b(" + "|".join(re.escape(k) for k in metric_keys) + r")\b",
+            re.IGNORECASE,
+        )
+        state_setter_pattern = re.compile(r"\bset[A-Z][a-zA-Z0-9_]*\s*\(")
+        numeric_prop_pattern = re.compile(r"""(?:(['"]?)([a-zA-Z0-9_]+)\1\s*:\s*([0-9]+(?:\.[0-9]+)?))""")
+
+        brace_stack: List[Tuple[str, int]] = []
+        current_obj_metrics: List[Tuple[str, int]] = []
+        reported_lines: Set[int] = set()
 
         for line_idx, line in enumerate(lines, start=1):
             clean = line.split("//")[0].strip()
             if not clean or clean.startswith("*"):
                 continue
 
-            for m in JS_PROPERTY_PATTERN.finditer(clean):
+            # Avoid flagging state setter callbacks (e.g. setFilter(...), setOptions(...), setSelected(...))
+            if state_setter_pattern.search(clean):
+                continue
+
+            # Look for numeric properties matching telemetry_metric_keys
+            for m in numeric_prop_pattern.finditer(clean):
                 key = m.group(2)
-                if key.lower() in domain_keys:
-                    current_obj_keys.append((key, line_idx))
+                if metric_pattern.search(key) or key.lower() in metric_keys:
+                    current_obj_metrics.append((key, line_idx))
 
             for char in clean:
                 if char in "{[":
                     brace_stack.append((char, line_idx))
-                    object_depth = len(brace_stack)
                 elif char in "}]":
                     if brace_stack:
                         open_char, open_line = brace_stack.pop()
-                        if object_depth >= 2 and current_obj_keys:
-                            keys_found = [k for k, l in current_obj_keys if l >= open_line]
-                            if len(keys_found) >= 2 or (len(keys_found) >= 1 and object_depth >= 3):
-                                if not any(v.line_number == open_line for v in violations):
-                                    violations.append(
-                                        Violation(
-                                            rule_id="ISO-25010-INT-001",
-                                            standard=self.standard,
-                                            severity=Severity.ERROR,
-                                            message=(
-                                                f"Unanchored deep synthetic domain literal (depth={object_depth}, keys={sorted(list(set(keys_found)))}) "
-                                                f"detected in production file. Hardcoded mock fixtures in production boundaries are prohibited."
-                                            ),
-                                            file_path=rel_path_str,
-                                            line_number=open_line,
-                                            context_snippet=lines[open_line - 1].strip(),
-                                            remediation_hint="Bind component data to live props, React Query hooks, or API client streams.",
-                                        )
+                        # Check metrics detected in this scope (from open_line to line_idx)
+                        scope_metrics = [k for k, l in current_obj_metrics if open_line <= l <= line_idx]
+                        distinct_metrics = set(scope_metrics)
+                        if len(distinct_metrics) >= 2 or len(scope_metrics) >= 2:
+                            if open_line not in reported_lines:
+                                reported_lines.add(open_line)
+                                violations.append(
+                                    Violation(
+                                        rule_id="ISO-25010-INT-001",
+                                        standard=self.standard,
+                                        severity=Severity.ERROR,
+                                        message=(
+                                            f"Unanchored deep synthetic domain literal (metrics={sorted(list(distinct_metrics))}) "
+                                            f"detected in production file. Hardcoded mock fixtures in production boundaries are prohibited."
+                                        ),
+                                        file_path=rel_path_str,
+                                        line_number=open_line,
+                                        context_snippet=lines[open_line - 1].strip(),
+                                        remediation_hint="Bind component data to live props, React Query hooks, or API client streams.",
                                     )
-                        object_depth = len(brace_stack)
-                        if object_depth == 0:
-                            current_obj_keys.clear()
+                                )
+                        if not brace_stack:
+                            current_obj_metrics.clear()
 
         return violations
 

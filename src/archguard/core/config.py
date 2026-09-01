@@ -24,6 +24,8 @@ class TokenConfig(BaseModel):
     )
     allowed_hex_colors: List[str] = Field(default_factory=list)
     enforce_unitless_zero: bool = True
+    allow_layout_pixel_literals: bool = False
+    ignore_micro_spacing: bool = True
 
 
 class LayerConfig(BaseModel):
@@ -139,6 +141,28 @@ class DataIntegrityConfig(BaseModel):
             "speed",
             "frequency",
             "power",
+        ]
+    )
+    telemetry_metric_keys: List[str] = Field(
+        default_factory=lambda: [
+            "latency",
+            "latency_ms",
+            "jitter",
+            "jitter_ms",
+            "packets",
+            "total_packets",
+            "oee",
+            "oee_percent",
+            "mtbf",
+            "mtbf_hours",
+            "mttr",
+            "mttr_minutes",
+            "availability_percent",
+            "performance_percent",
+            "quality_percent",
+            "cycle_duration",
+            "cycle_duration_ms",
+            "error_rate",
         ]
     )
     operational_states: List[str] = Field(

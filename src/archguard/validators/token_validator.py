@@ -132,9 +132,11 @@ class TokenValidator(BaseValidator):
                         )
 
                     # Check for hardcoded pixel dimensions on layout properties in CSS
-                    if file_path.suffix in {".css", ".scss"}:
+                    if file_path.suffix in {".css", ".scss"} and not self.config.tokens.allow_layout_pixel_literals:
                         for px_match in HARDCODED_PIXEL_PATTERN.finditer(line):
                             prop, val = px_match.group(1), px_match.group(2)
+                            if self.config.tokens.ignore_micro_spacing and val in {"0px", "1px", "2px"}:
+                                continue
                             violations.append(
                                 Violation(
                                     rule_id="W3C-DTCG-004",

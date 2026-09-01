@@ -137,10 +137,14 @@ def test_top_002_valid_branch_prefixes(git_repo: Path):
 
 
 def test_top_002_ignores_synthetic_ci_branches(git_repo: Path):
-    """TOP-002: Ignores synthetic CI branches (pull/*, gh-pages, etc.)."""
+    """TOP-002: Ignores synthetic CI branches (pull/*, gh-pages, dependabot/*, renovate/*, release/*, remote refs, etc.)."""
     run_git(["branch", "pull/2/merge"], git_repo)
     run_git(["branch", "pull/45/head"], git_repo)
     run_git(["branch", "gh-pages"], git_repo)
+    run_git(["branch", "dependabot/npm_and_yarn/lodash-4.17.21"], git_repo)
+    run_git(["branch", "renovate/all-minor-patch"], git_repo)
+    run_git(["branch", "release/v1.2.0"], git_repo)
+    run_git(["branch", "release/2026-03"], git_repo)
 
     config = ArchGuardConfig(
         git_topology=GitTopologyConfig(
