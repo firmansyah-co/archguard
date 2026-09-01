@@ -7,6 +7,7 @@ Standards: SemVer 2.0.0 / Conventional Commits 1.0.0 / PEP 440 / IEEE 828-2012.
 
 import ast
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -264,6 +265,18 @@ class VersioningEngine:
                             # Keep matched prefix and suffix
                             span = match.span(1)
                             new_content = content[:span[0]] + target_version + content[span[1]:]
+                            
+                            # If package-lock.json, also sync packages[""]["version"] if present
+                            if path.name == "package-lock.json":
+                                try:
+                                    lock_data = json.loads(new_content)
+                                    if "packages" in lock_data and "" in lock_data["packages"]:
+                                        if lock_data["packages"][""].get("version") != target_version:
+                                            lock_data["packages"][""]["version"] = target_version
+                                            new_content = json.dumps(lock_data, indent=2) + "\n"
+                                except Exception:
+                                    pass
+
                             rel_path = str(path.relative_to(self.root_dir))
                             changes[rel_path] = (old_ver, target_version)
                             if not dry_run:
