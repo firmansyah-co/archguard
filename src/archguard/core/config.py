@@ -178,6 +178,63 @@ class DataIntegrityConfig(BaseModel):
     )
 
 
+class RequiredBranchConfig(BaseModel):
+    name: str
+    protected: bool = True
+    require_pr: bool = True
+    require_approvals: int = 0
+    require_ci_pass: bool = True
+
+
+class GitTopologyConfig(BaseModel):
+    enabled: bool = True
+    topology_type: str = "dual-trunk"  # Options: "single-trunk", "dual-trunk"
+    required_branches: List[RequiredBranchConfig] = Field(
+        default_factory=lambda: [
+            RequiredBranchConfig(name="main", protected=True, require_pr=True, require_approvals=1, require_ci_pass=True),
+            RequiredBranchConfig(name="dev", protected=True, require_pr=True, require_approvals=0, require_ci_pass=True),
+        ]
+    )
+    branch_naming_patterns: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "feature": r"^feat/[a-z0-9-]+$",
+            "bugfix": r"^fix/[a-z0-9-]+$",
+            "refactor": r"^refactor/[a-z0-9-]+$",
+            "chore": r"^chore/[a-z0-9-]+$",
+            "ci": r"^ci/[a-z0-9-]+$",
+            "docs": r"^docs/[a-z0-9-]+$",
+        }
+    )
+    ephemeral_branch_max_age_hours: int = 48
+
+
+class VersionFileConfig(BaseModel):
+    path: str
+    pattern: str
+
+
+class GitVersioningConfig(BaseModel):
+    enabled: bool = True
+    version_scheme: str = "pep440"  # Options: "pep440", "semver"
+    version_files: List[VersionFileConfig] = Field(
+        default_factory=lambda: [
+            VersionFileConfig(path="pyproject.toml", pattern=r'version\s*=\s*"([^"]+)"'),
+            VersionFileConfig(path="src/*/__init__.py", pattern=r'__version__\s*=\s*"([^"]+)"'),
+            VersionFileConfig(path="package.json", pattern=r'"version":\s*"([^"]+)"'),
+        ]
+    )
+    commit_types: Dict[str, List[str]] = Field(
+        default_factory=lambda: {
+            "major": ["feat!"],
+            "minor": ["feat"],
+            "patch": ["fix", "perf", "refactor"],
+        }
+    )
+    ban_manual_version_edits: bool = True
+    tag_prefix: str = "v"
+    dev_prerelease_identifier: str = "alpha"
+
+
 class ArchGuardConfig(BaseModel):
     version: str = "1.0"
     project_name: Optional[str] = None
@@ -188,6 +245,8 @@ class ArchGuardConfig(BaseModel):
     specs: SpecConfig = Field(default_factory=SpecConfig)
     topology: TopologyConfig = Field(default_factory=TopologyConfig)
     integrity: DataIntegrityConfig = Field(default_factory=DataIntegrityConfig)
+    git_topology: GitTopologyConfig = Field(default_factory=GitTopologyConfig)
+    git_versioning: GitVersioningConfig = Field(default_factory=GitVersioningConfig)
 
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "ArchGuardConfig":

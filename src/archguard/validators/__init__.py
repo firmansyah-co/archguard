@@ -12,7 +12,9 @@ from archguard.validators.layer_validator import LayerValidator
 from archguard.validators.component_validator import ComponentValidator
 from archguard.validators.spec_validator import SpecValidator
 from archguard.validators.topology_validator import TopologyValidator
+from archguard.validators.topology_validator_v2 import GitTopologyValidator
 from archguard.validators.data_integrity_validator import DataIntegrityValidator
+from archguard.validators.versioning_validator import VersioningValidator
 
 
 ALL_VALIDATORS = [
@@ -22,6 +24,8 @@ ALL_VALIDATORS = [
     SpecValidator,
     TopologyValidator,
     DataIntegrityValidator,
+    GitTopologyValidator,
+    VersioningValidator,
 ]
 
 
@@ -68,6 +72,9 @@ __all__ = [
     "ComponentValidator",
     "SpecValidator",
     "TopologyValidator",
+    "GitTopologyValidator",
+    "DataIntegrityValidator",
+    "VersioningValidator",
     "ALL_VALIDATORS",
     "run_all_checks",
 ]

@@ -118,6 +118,46 @@ integrity:
   ban_heuristic_state_inference: true
   ban_synthetic_fallbacks: true
   ban_mock_artifacts_in_production: true
+
+git_topology:
+  enabled: true
+  topology_type: "dual-trunk"
+  required_branches:
+    - name: "main"
+      protected: true
+      require_pr: true
+      require_approvals: 1
+      require_ci_pass: true
+    - name: "dev"
+      protected: true
+      require_pr: true
+      require_ci_pass: true
+  branch_naming_patterns:
+    feature: "^feat/[a-z0-9-]+$"
+    bugfix: "^fix/[a-z0-9-]+$"
+    refactor: "^refactor/[a-z0-9-]+$"
+    chore: "^chore/[a-z0-9-]+$"
+    ci: "^ci/[a-z0-9-]+$"
+    docs: "^docs/[a-z0-9-]+$"
+  ephemeral_branch_max_age_hours: 48
+
+git_versioning:
+  enabled: true
+  version_scheme: "pep440"
+  version_files:
+    - path: "pyproject.toml"
+      pattern: 'version\\s*=\\s*"([^"]+)"'
+    - path: "src/*/__init__.py"
+      pattern: '__version__\\s*=\\s*"([^"]+)"'
+    - path: "package.json"
+      pattern: '"version":\\s*"([^"]+)"'
+  commit_types:
+    major: ["feat!"]
+    minor: ["feat"]
+    patch: ["fix", "perf", "refactor"]
+  ban_manual_version_edits: true
+  tag_prefix: "v"
+  dev_prerelease_identifier: "alpha"
 """
 
 
