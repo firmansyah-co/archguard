@@ -25,6 +25,7 @@ from archguard.templates.scaffold import (
 from archguard.validators import (
     ALL_VALIDATORS,
     ComponentValidator,
+    DataIntegrityValidator,
     LayerValidator,
     SpecValidator,
     TokenValidator,
@@ -138,6 +139,7 @@ def check_cmd(
     specs: bool = typer.Option(False, "--specs", help="Run ISO 29148 Living specification checks"),
     topology: bool = typer.Option(False, "--topology", help="Run ISO 12207 Repository hygiene checks"),
     components: bool = typer.Option(False, "--components", help="Run ISO 25010 Component reusability checks"),
+    integrity: bool = typer.Option(False, "--integrity", help="Run ISO 25010 Data integrity & zero-mock checks"),
 ) -> None:
     """Run deterministic static AST & standards validation engine."""
     root = path.resolve()
@@ -155,6 +157,8 @@ def check_cmd(
         selected_validators.append(TopologyValidator)
     if components:
         selected_validators.append(ComponentValidator)
+    if integrity:
+        selected_validators.append(DataIntegrityValidator)
 
     if not selected_validators or all_checks:
         selected_validators = ALL_VALIDATORS

@@ -45,6 +45,17 @@ def test_cli_hook_install(tmp_path: Path):
     assert (git_dir / "hooks" / "pre-push").exists()
 
 
+def test_cli_check_integrity_flag(tmp_path: Path):
+    init_res = runner.invoke(app, ["init", "--target", str(tmp_path), "--type", "fullstack"])
+    assert init_res.exit_code == 0
+
+    # Test check with --integrity flag only
+    check_res = runner.invoke(app, ["check", "--path", str(tmp_path), "--integrity"])
+    assert check_res.exit_code == 0
+    assert "data_integrity" in check_res.stdout
+    assert "PASSED" in check_res.stdout
+
+
 def test_cli_update_command(tmp_path: Path):
     # 1. Test update --project on empty dir
     res_proj = runner.invoke(app, ["update", "--project", "--target", str(tmp_path)])

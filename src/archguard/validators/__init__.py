@@ -12,6 +12,7 @@ from archguard.validators.layer_validator import LayerValidator
 from archguard.validators.component_validator import ComponentValidator
 from archguard.validators.spec_validator import SpecValidator
 from archguard.validators.topology_validator import TopologyValidator
+from archguard.validators.data_integrity_validator import DataIntegrityValidator
 
 
 ALL_VALIDATORS = [
@@ -20,6 +21,7 @@ ALL_VALIDATORS = [
     ComponentValidator,
     SpecValidator,
     TopologyValidator,
+    DataIntegrityValidator,
 ]
 
 
