@@ -136,6 +136,25 @@ def test_top_002_valid_branch_prefixes(git_repo: Path):
     assert len(top2_violations) == 0
 
 
+def test_top_002_ignores_synthetic_ci_branches(git_repo: Path):
+    """TOP-002: Ignores synthetic CI branches (pull/*, gh-pages, etc.)."""
+    run_git(["branch", "pull/2/merge"], git_repo)
+    run_git(["branch", "pull/45/head"], git_repo)
+    run_git(["branch", "gh-pages"], git_repo)
+
+    config = ArchGuardConfig(
+        git_topology=GitTopologyConfig(
+            enabled=True,
+            topology_type="single-trunk",
+        )
+    )
+    validator = GitTopologyValidator(root_dir=git_repo, config=config)
+    res = validator.validate()
+
+    top2_violations = [v for v in res.violations if v.rule_id == "TOP-002"]
+    assert len(top2_violations) == 0
+
+
 def test_top_005_stale_ephemeral_branch(git_repo: Path):
     """TOP-005: Flags ephemeral branches exceeding max age hours."""
     # Create an old commit 5 days ago

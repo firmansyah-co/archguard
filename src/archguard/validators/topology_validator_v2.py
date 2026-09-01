@@ -154,8 +154,20 @@ class GitTopologyValidator(BaseValidator):
                 req_names = ["main", "dev"]
 
         for req in req_names:
-            # Check if req or origin/req exists in branch_names
-            if req not in branch_names and f"origin/{req}" not in branch_names:
+            # Check if req or origin/req exists in branch_names or git refs
+            exists = req in branch_names or f"origin/{req}" in branch_names or f"remotes/origin/{req}" in branch_names
+            if not exists:
+                for ref in [req, f"origin/{req}", f"refs/remotes/origin/{req}", f"refs/heads/{req}"]:
+                    code, out, _ = run_git_cmd(["rev-parse", "--verify", ref], self.root_dir)
+                    if code == 0 and out:
+                        exists = True
+                        break
+            if not exists:
+                code, out, _ = run_git_cmd(["ls-remote", "--heads", "origin", req], self.root_dir)
+                if code == 0 and out.strip():
+                    exists = True
+
+            if not exists:
                 violations.append(
                     Violation(
                         rule_id="TOP-001",
@@ -180,7 +192,20 @@ class GitTopologyValidator(BaseValidator):
 
         for branch in branches:
             name = branch["name"]
+            full_ref = branch.get("full_ref", "")
             if name in trunk_names or name.startswith("tags/"):
+                continue
+
+            # Ignore synthetic CI/GitHub Actions branches, origin prefixes, and pages
+            if (
+                name.startswith("pull/")
+                or full_ref.startswith("pull/")
+                or full_ref.startswith("refs/pull/")
+                or name.startswith("gh-pages")
+                or name.startswith("origin/")
+                or name == "HEAD"
+                or name.startswith("remotes/")
+            ):
                 continue
 
             # Release branch pattern exception (e.g. release/v1.0.0 or release/1.0.0)
@@ -293,7 +318,21 @@ class GitTopologyValidator(BaseValidator):
 
         for branch in branches:
             name = branch["name"]
+            full_ref = branch.get("full_ref", "")
+
             if name in trunk_names:
+                continue
+
+            # Ignore synthetic CI branches
+            if (
+                name.startswith("pull/")
+                or full_ref.startswith("pull/")
+                or full_ref.startswith("refs/pull/")
+                or name.startswith("gh-pages")
+                or name.startswith("origin/")
+                or name == "HEAD"
+                or name.startswith("remotes/")
+            ):
                 continue
 
             date_str = branch.get("date")
@@ -301,8 +340,13 @@ class GitTopologyValidator(BaseValidator):
                 continue
 
             try:
-                # Parse ISO date
-                branch_date = datetime.fromisoformat(date_str)
+                # Parse ISO date with Python 3.10 compatibility (handle trailing 'Z')
+                s = str(date_str).strip()
+                if s.endswith("Z"):
+                    s = s[:-1] + "+00:00"
+                branch_date = datetime.fromisoformat(s)
+                if branch_date.tzinfo is None:
+                    branch_date = branch_date.replace(tzinfo=timezone.utc)
                 age_hours = (now - branch_date).total_seconds() / 3600.0
                 if age_hours > max_age_hours:
                     violations.append(
