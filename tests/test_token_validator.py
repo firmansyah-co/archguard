@@ -93,3 +93,52 @@ def test_token_validator_fails_on_raw_rgb(tmp_path: Path):
     result = validator.validate()
     assert result.passed is False
     assert any(v.rule_id == "W3C-DTCG-003" for v in result.violations)
+
+
+def test_token_validator_respects_allow_layout_pixel_literals_and_micro_spacing(tmp_path: Path):
+    css_file = tmp_path / "frontend" / "src" / "style.css"
+    css_file.parent.mkdir(parents=True, exist_ok=True)
+    css_file.write_text(
+        "div {\n  padding: 1px;\n  margin: 0px;\n  height: 2px;\n  width: 200px;\n}\n",
+        encoding="utf-8",
+    )
+
+    # 1. Default (allow_layout_pixel_literals=False, ignore_micro_spacing=True): 200px is flagged, 0px/1px/2px ignored
+    config_default = ArchGuardConfig(
+        tokens=TokenConfig(
+            token_files=[],
+            scan_paths=["frontend/src"],
+            allow_layout_pixel_literals=False,
+            ignore_micro_spacing=True,
+        )
+    )
+    res1 = TokenValidator(root_dir=tmp_path, config=config_default).validate()
+    w3c_4_violations = [v for v in res1.violations if v.rule_id == "W3C-DTCG-004"]
+    assert len(w3c_4_violations) == 1
+    assert "width: 200px" in w3c_4_violations[0].message
+
+    # 2. ignore_micro_spacing=False: all 4 are flagged
+    config_strict = ArchGuardConfig(
+        tokens=TokenConfig(
+            token_files=[],
+            scan_paths=["frontend/src"],
+            allow_layout_pixel_literals=False,
+            ignore_micro_spacing=False,
+        )
+    )
+    res2 = TokenValidator(root_dir=tmp_path, config=config_strict).validate()
+    w3c_4_violations_strict = [v for v in res2.violations if v.rule_id == "W3C-DTCG-004"]
+    assert len(w3c_4_violations_strict) == 4
+
+    # 3. allow_layout_pixel_literals=True: skipped completely
+    config_allowed = ArchGuardConfig(
+        tokens=TokenConfig(
+            token_files=[],
+            scan_paths=["frontend/src"],
+            allow_layout_pixel_literals=True,
+            ignore_micro_spacing=False,
+        )
+    )
+    res3 = TokenValidator(root_dir=tmp_path, config=config_allowed).validate()
+    w3c_4_violations_allowed = [v for v in res3.violations if v.rule_id == "W3C-DTCG-004"]
+    assert len(w3c_4_violations_allowed) == 0

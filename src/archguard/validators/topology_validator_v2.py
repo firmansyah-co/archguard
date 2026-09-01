@@ -96,8 +96,8 @@ class GitTopologyValidator(BaseValidator):
     def _get_branches(self) -> List[Dict[str, Any]]:
         """List local and remote tracking branches."""
         branches: List[Dict[str, Any]] = []
-        # Format: refname:short|committerdate:iso-strict|objectname
-        fmt = "%(refname:short)|%(committerdate:iso-strict)|%(objectname)"
+        # Format: refname:short|committerdate:iso-strict|objectname|refname
+        fmt = "%(refname:short)|%(committerdate:iso-strict)|%(objectname)|%(refname)"
         code, out, _ = run_git_cmd(["for-each-ref", f"--format={fmt}", "refs/heads/", "refs/remotes/"], self.root_dir)
         if code != 0 or not out:
             return branches
@@ -109,6 +109,7 @@ class GitTopologyValidator(BaseValidator):
                 full_name = parts[0]
                 date_str = parts[1]
                 commit_sha = parts[2]
+                full_ref = parts[3] if len(parts) >= 4 else parts[0]
 
                 # Skip HEAD and symbolic refs
                 if "HEAD" in full_name:
@@ -116,7 +117,7 @@ class GitTopologyValidator(BaseValidator):
 
                 # Strip origin/ or upstream/ for remote branches if needed
                 short_name = full_name
-                is_remote = full_name.startswith("origin/") or full_name.startswith("remotes/")
+                is_remote = full_ref.startswith("refs/remotes/") or full_name.startswith("origin/") or full_name.startswith("remotes/")
                 if is_remote:
                     short_name = full_name.split("/", 1)[1] if "/" in full_name else full_name
                 
@@ -128,7 +129,7 @@ class GitTopologyValidator(BaseValidator):
                     seen_names.add(short_name)
                     branches.append({
                         "name": short_name,
-                        "full_ref": full_name,
+                        "full_ref": full_ref,
                         "is_remote": is_remote,
                         "date": date_str,
                         "sha": commit_sha,
@@ -193,18 +194,31 @@ class GitTopologyValidator(BaseValidator):
         for branch in branches:
             name = branch["name"]
             full_ref = branch.get("full_ref", "")
+            is_remote = branch.get("is_remote", False)
+
+            # Ensure only local active branches (refs/heads/*) are checked
+            if is_remote or full_ref.startswith("refs/remotes/"):
+                continue
+
             if name in trunk_names or name.startswith("tags/"):
                 continue
 
-            # Ignore synthetic CI/GitHub Actions branches, origin prefixes, and pages
+            # Ignore synthetic CI/GitHub Actions branches, origin prefixes, bots, and release branches
             if (
                 name.startswith("pull/")
                 or full_ref.startswith("pull/")
                 or full_ref.startswith("refs/pull/")
+                or full_ref.startswith("refs/remotes/")
                 or name.startswith("gh-pages")
                 or name.startswith("origin/")
                 or name == "HEAD"
                 or name.startswith("remotes/")
+                or name.startswith("dependabot/")
+                or full_ref.startswith("refs/heads/dependabot/")
+                or name.startswith("renovate/")
+                or full_ref.startswith("refs/heads/renovate/")
+                or name.startswith("release/")
+                or full_ref.startswith("refs/heads/release/")
             ):
                 continue
 

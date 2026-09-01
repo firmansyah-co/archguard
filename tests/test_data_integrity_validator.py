@@ -246,3 +246,88 @@ def test_data_integrity_disabled_skips(tmp_path: Path):
     result = validator.validate()
     assert result.passed is True
     assert result.checked_files_count == 0
+
+
+def test_rule_001_precision_refinements_select_options_and_state_setters(tmp_path: Path):
+    src = tmp_path / "frontend" / "src"
+    src.mkdir(parents=True, exist_ok=True)
+    (src / "SelectOptions.tsx").write_text(
+        """
+export const SELECT_OPTIONS = [
+    { value: "direct", label: "Direct Inbound" },
+    { value: "batched", label: "Batched Buffer" }
+];
+
+export function handleUpdate() {
+    setFilter({ status: "ACTIVE", value: "test" });
+}
+""",
+        encoding="utf-8",
+    )
+
+    config = ArchGuardConfig(
+        integrity=DataIntegrityConfig(production_paths=["frontend/src"], test_paths=["tests"])
+    )
+    validator = DataIntegrityValidator(root_dir=tmp_path, config=config)
+    result = validator.validate()
+    assert result.passed is True
+    assert len(result.violations) == 0
+
+
+def test_rule_001_flags_multiple_numeric_mock_metrics(tmp_path: Path):
+    src = tmp_path / "frontend" / "src"
+    src.mkdir(parents=True, exist_ok=True)
+    (src / "MockMetrics.tsx").write_text(
+        """
+export const MOCK_TELEMETRY = {
+    plant_a: {
+        oee_percent: 88.5,
+        mtbf_hours: 720.0
+    },
+    plant_b: {
+        jitter_ms: 0.32,
+        total_packets: 28450
+    }
+};
+""",
+        encoding="utf-8",
+    )
+
+    config = ArchGuardConfig(
+        integrity=DataIntegrityConfig(production_paths=["frontend/src"], test_paths=["tests"])
+    )
+    validator = DataIntegrityValidator(root_dir=tmp_path, config=config)
+    result = validator.validate()
+    assert result.passed is False
+    assert any(v.rule_id == "ISO-25010-INT-001" for v in result.violations)
+
+
+def test_rule_003_ignores_config_defaults_and_flags_telemetry_keys(tmp_path: Path):
+    src = tmp_path / "src"
+    src.mkdir(parents=True, exist_ok=True)
+    (src / "config_and_telemetry.py").write_text(
+        """
+def load_config(opts: dict):
+    # Valid config defaults - must NOT be flagged
+    ntp_port = opts.get("ntp_port", 123)
+    timeout_ms = opts.get("timeout_ms", 5000)
+    retention_days = opts.get("retention_days", 30)
+    return ntp_port, timeout_ms, retention_days
+
+def get_live_latency(payload: dict):
+    # Synthetic telemetry default - MUST be flagged
+    return payload.get("latency_ms", 12.5)
+""",
+        encoding="utf-8",
+    )
+
+    config = ArchGuardConfig(
+        integrity=DataIntegrityConfig(production_paths=["src"], test_paths=["tests"])
+    )
+    validator = DataIntegrityValidator(root_dir=tmp_path, config=config)
+    result = validator.validate()
+    assert result.passed is False
+    int3_violations = [v for v in result.violations if v.rule_id == "ISO-25010-INT-003"]
+    assert len(int3_violations) == 1
+    assert "latency_ms" in int3_violations[0].message
+
