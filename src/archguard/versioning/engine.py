@@ -76,16 +76,16 @@ class VersioningEngine:
         Find last release tag via git describe / tag list.
         Returns (tag_name, major, minor, patch).
         """
-        # Try git describe --tags --abbrev=0
-        code, out, _ = run_git_command(["describe", "--tags", "--abbrev=0"], self.root_dir)
+        # Try git describe --tags --abbrev=0 excluding ephemeral/build-metadata tags (*+g*)
+        code, out, _ = run_git_command(["describe", "--tags", "--abbrev=0", "--exclude=*+g*"], self.root_dir)
         tag_name: Optional[str] = None
         if code == 0 and out:
             tag_name = out
         else:
-            # Try listing tags sorted by version
+            # Try listing tags sorted by version, filtering out ephemeral tags with +g metadata
             code_list, out_list, _ = run_git_command(["tag", "--list", f"{tag_prefix}*", "--sort=-v:refname"], self.root_dir)
             if code_list == 0 and out_list:
-                tags = [t.strip() for t in out_list.splitlines() if t.strip()]
+                tags = [t.strip() for t in out_list.splitlines() if t.strip() and "+g" not in t.strip()]
                 if tags:
                     tag_name = tags[0]
 
